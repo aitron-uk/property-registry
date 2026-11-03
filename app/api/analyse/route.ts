@@ -1,0 +1,49 @@
+import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
+import { analyse, fetchListing, overallScore } from "@/lib/analyse";
+import { db, getSettings } from "@/lib/db";
+import { geocode } from "@/lib/geo";
+import { nearby } from "@/lib/nearby";
+
+export const maxDuration = 300; // web-search research can take 1-3 minutes
+
+export async function POST(req: Request) {
+  const { url, text = "", id } = (await req.json()) as { url?: string; text?: string; id?: string };
+  if (!url || !/^https?:\/\//i.test(url)) return NextResponse.json({ error: "Paste a full listing URL (https://…)" }, { status: 400 });
+  if (!process.env.OPENAI_API_KEY) return NextResponse.json({ error: "OPENAI_API_KEY is not set" }, { status: 500 });
+
+  try {
+    const [page, settings] = await Promise.all([fetchListing(url), getSettings()]);
+    // With an exact pin (Rightmove) we look up real nearby places first and hand them to the AI.
+    const early = page.pin ? await nearby(page.pin) : null;
+    const { facts, report } = await analyse(url, page, text, settings, early?.places);
+    const pin = page.pin ?? (await geocode(facts.postcode)) ?? (await geocode(facts.address));
+    const places = early ?? (pin ? await nearby(pin) : null);
+
+    const row = {
+      ...facts,
+      url,
+      price: facts.price && Math.round(facts.price),
+      size_sqft: facts.size_sqft && Math.round(facts.size_sqft),
+      listed_date: /^\d{4}-\d{2}-\d{2}$/.test(facts.listed_date ?? "") ? facts.listed_date : null,
+      lat: pin?.[0] ?? null,
+      lng: pin?.[1] ?? null,
+      image_url: page.image ?? page.images[0] ?? null,
+      ai: { ...report, images: page.images, analysed_at: new Date().toISOString() },
+      ai_score: overallScore(report.scores),
+      nearby: places,
+    };
+
+    // Re-analysing keeps your own status, rating and notes (they aren't in `row`).
+    const q = id
+      ? db().from("properties").update(row).eq("id", id).select("id").single()
+      : db().from("properties").upsert(row, { onConflict: "url" }).select("id").single();
+    const { data, error } = await q;
+    if (error) throw error;
+    revalidatePath("/");
+    return NextResponse.json({ id: data.id });
+  } catch (e) {
+    console.error(e);
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Analysis failed" }, { status: 500 });
+  }
+}

@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-paper: #f6f5f1;
+  --color-card: #ffffff;
+  --color-ink: #16181d;
+  --color-muted: #6b7079;
+  --color-line: #e6e4de;
+  --color-brand: #0f766e;
+  --color-brand-soft: #e6f2f0;
+  --color-good: #15803d;
+  --color-warn: #b45309;
+  --color-bad: #b91c1c;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+@utility card {
+  @apply rounded-2xl border border-line bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)];
+}
+@utility chip {
+  @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap;
+}
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition disabled:opacity-50;
+}
+@utility btn-primary {
+  @apply btn bg-ink text-white hover:bg-black;
+}
+@utility btn-ghost {
+  @apply btn border border-line bg-card hover:bg-paper;
+}
+@utility input {
+  @apply w-full rounded-xl border border-line bg-card px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/15;
+}
+@utility label {
+  @apply mb-1 block text-xs font-medium text-muted;
+}
+@utility h2 {
+  @apply text-base font-semibold tracking-tight;
+}
+
+.leaflet-container {
+  font-family: inherit;
+}
+@utility pin {
+  @apply flex items-center justify-center rounded-full border-2 border-white text-[11px] font-bold text-white shadow-md;
+}
