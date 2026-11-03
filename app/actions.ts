@@ -2,7 +2,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { db, getProperty } from "@/lib/db";
+import { db, dbErrorHelp, getProperty } from "@/lib/db";
 import { geocode } from "@/lib/geo";
 import { nearby } from "@/lib/nearby";
 import { authToken, isAuthed } from "@/lib/auth";
@@ -101,7 +101,7 @@ export async function saveSettings(form: FormData) {
       buyer_type: s(form.get("buyer_type")) ?? "standard",
       buyer_context: s(form.get("buyer_context")),
     });
-  if (error) throw error;
+  if (error) redirect(`/settings?error=${encodeURIComponent(dbErrorHelp(error))}`);
   revalidatePath("/", "layout");
   // 1 = located (or left empty), 0 = couldn't find that address
   const ok = (label: string | null, ll: unknown) => (!label || ll ? 1 : 0);

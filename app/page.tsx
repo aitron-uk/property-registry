@@ -1,10 +1,17 @@
 import { Suspense } from "react";
 import Dashboard from "@/components/Dashboard";
-import { getProperties, getSettings } from "@/lib/db";
+import { dbErrorHelp, getProperties, getSettings } from "@/lib/db";
 
 async function Data() {
-  const [properties, settings] = await Promise.all([getProperties(), getSettings()]);
-  return <Dashboard properties={properties} settings={settings} />;
+  const data = await Promise.all([getProperties(), getSettings()]).catch((e: unknown) => dbErrorHelp(e));
+  if (typeof data === "string")
+    return (
+      <div className="card mx-auto max-w-2xl space-y-2 border-red-200 p-6">
+        <h1 className="h2 text-bad">The database isn&apos;t ready</h1>
+        <p className="text-sm">{data}</p>
+      </div>
+    );
+  return <Dashboard properties={data[0]} settings={data[1]} />;
 }
 
 export default function Page() {

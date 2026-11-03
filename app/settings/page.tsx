@@ -2,8 +2,8 @@ import { Suspense } from "react";
 import { saveSettings } from "@/app/actions";
 import { getSettings } from "@/lib/db";
 
-async function Form({ searchParams }: { searchParams: Promise<{ saved?: string }> }) {
-  const [s, { saved }] = await Promise.all([getSettings(), searchParams]);
+async function Form({ searchParams }: { searchParams: Promise<{ saved?: string; error?: string }> }) {
+  const [s, { saved, error }] = await Promise.all([getSettings(), searchParams]);
   const located = (lat: number | null | undefined) =>
     lat ? <span className="text-xs text-good">✓ located</span> : <span className="text-xs text-muted">not located yet</span>;
 
@@ -13,6 +13,7 @@ async function Form({ searchParams }: { searchParams: Promise<{ saved?: string }
         <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
         <p className="text-sm text-muted">Used for drive times, routes, budget warnings, stamp duty and to tailor every AI report to you.</p>
       </div>
+      {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-bad">Couldn&apos;t save: {error}</p>}
       {saved && (
         <p className={`rounded-lg px-3 py-2 text-sm ${!saved.includes("0") ? "bg-emerald-50 text-good" : "bg-amber-50 text-warn"}`}>
           Saved. {saved.includes("0") && "One address couldn't be located. Try a full postcode (e.g. CR7 8AA)."}
@@ -65,7 +66,7 @@ async function Form({ searchParams }: { searchParams: Promise<{ saved?: string }
 export default function Page({ searchParams }: PageProps<"/settings">) {
   return (
     <Suspense fallback={<div className="mx-auto h-96 max-w-2xl animate-pulse rounded-2xl bg-line/50" />}>
-      <Form searchParams={searchParams as Promise<{ saved?: string }>} />
+      <Form searchParams={searchParams as Promise<{ saved?: string; error?: string }>} />
     </Suspense>
   );
 }

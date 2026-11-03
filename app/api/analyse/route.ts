@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { analyse, fetchListing, overallScore } from "@/lib/analyse";
-import { db, getSettings } from "@/lib/db";
+import { db, dbErrorHelp, getSettings } from "@/lib/db";
 import { geocode } from "@/lib/geo";
 import { nearby } from "@/lib/nearby";
 
@@ -39,11 +39,12 @@ export async function POST(req: Request) {
       ? db().from("properties").update(row).eq("id", id).select("id").single()
       : db().from("properties").upsert(row, { onConflict: "url" }).select("id").single();
     const { data, error } = await q;
-    if (error) throw error;
+    if (error) return NextResponse.json({ error: dbErrorHelp(error) }, { status: 500 });
     revalidatePath("/");
     return NextResponse.json({ id: data.id });
   } catch (e) {
     console.error(e);
-    return NextResponse.json({ error: e instanceof Error ? e.message : "Analysis failed" }, { status: 500 });
+    const msg = e instanceof Error ? e.message : dbErrorHelp(e);
+    return NextResponse.json({ error: /api key|401|incorrect.*key/i.test(msg) ? "OpenAI rejected the API key. Check OPENAI_API_KEY in Vercel and redeploy." : /quota|billing|429/i.test(msg) ? "OpenAI says you're out of credit or rate-limited. Add credit at platform.openai.com → Billing." : msg }, { status: 500 });
   }
 }

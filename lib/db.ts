@@ -27,3 +27,19 @@ export async function getSettings(): Promise<Settings | null> {
   const { data } = await db().from("settings").select("*").eq("id", 1).maybeSingle();
   return data as Settings | null;
 }
+
+/** Turn Supabase errors into a setup instruction a human can act on. */
+export function dbErrorHelp(e: unknown): string {
+  const msg = typeof e === "object" && e && "message" in e ? String((e as { message: unknown }).message) : String(e);
+  const code = typeof e === "object" && e && "code" in e ? String((e as { code: unknown }).code) : "";
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY)
+    return "Supabase isn't connected: add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel → Settings → Environment Variables, then redeploy.";
+  if (code === "42P01" || code === "PGRST205" || /does not exist|could not find the table/i.test(msg))
+    return "The database tables don't exist yet. In Supabase → SQL Editor, paste and run supabase/schema.sql.";
+  if (code === "PGRST204" || code === "42703" || /column/i.test(msg))
+    return `Your database is missing new columns (${msg}). In Supabase → SQL Editor, run supabase/schema.sql again. It's safe to re-run.`;
+  if (code === "42501" || /permission denied/i.test(msg))
+    return "Permission denied. Make sure SUPABASE_SERVICE_ROLE_KEY is the secret / service_role key (not the publishable or anon key), then run supabase/schema.sql again.";
+  if (/invalid api key|jwt/i.test(msg)) return "Supabase rejected the key. Copy the secret (service_role) key into SUPABASE_SERVICE_ROLE_KEY again and redeploy.";
+  return msg;
+}

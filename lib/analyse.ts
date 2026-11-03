@@ -210,14 +210,48 @@ ${page.text ? `--- LISTING PAGE TEXT ---\n${page.text}` : "(Listing page could n
 ${extraText ? `--- EXTRA NOTES FROM BUYER ---\n${extraText.slice(0, 20_000)}` : ""}`;
 
   const openai = new OpenAI();
+  const model = process.env.OPENAI_MODEL || "gpt-5.4-mini";
+  const format = { type: "json_schema" as const, name: "property_analysis", strict: true, schema: SCHEMA };
   const res = await openai.responses.create({
-    model: process.env.OPENAI_MODEL || "gpt-5.4-mini",
+    model,
     tools: [{ type: "web_search", user_location: { type: "approximate", country: "GB" } }],
     reasoning: { effort: "low" },
+    max_output_tokens: 40_000,
     input,
-    text: { format: { type: "json_schema", name: "property_analysis", strict: true, schema: SCHEMA } },
+    text: { format },
   });
-  return JSON.parse(res.output_text) as Analysis;
+  if (res.status === "incomplete" && res.incomplete_details?.reason !== "max_output_tokens")
+    throw new Error(`The AI stopped early (${res.incomplete_details?.reason ?? "unknown"}). Try again.`);
+
+  // With web search the model can write several messages; `output_text` glues them together. Use the last one.
+  const last = res.output.filter((o) => o.type === "message").at(-1);
+  const text = last?.content.map((c) => (c.type === "output_text" ? c.text : "")).join("") ?? "";
+  const parsed = parseJson(text);
+  if (parsed) return parsed as Analysis;
+
+  // Cut-off or malformed JSON: ask the model (no tools, cheap) to rewrite it into the schema.
+  const fix = await openai.responses.create({
+    model,
+    reasoning: { effort: "low" },
+    max_output_tokens: 40_000,
+    input: `Rewrite this property analysis as valid JSON that matches the schema. Keep every fact; fill anything missing with null, empty arrays or a short "unknown".\n\n${text || res.output_text}`,
+    text: { format },
+  });
+  const fixed = parseJson(fix.output_text);
+  if (!fixed) throw new Error("The AI reply couldn't be read. Please try again.");
+  return fixed as Analysis;
+}
+
+/** JSON.parse that tolerates code fences or chatter around the object. */
+export function parseJson(text: string): unknown {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
 }
 
 export const overallScore = (s: Report["scores"]) => {
