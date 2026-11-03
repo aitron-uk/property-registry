@@ -14,8 +14,8 @@ async function Form({ searchParams }: { searchParams: Promise<{ saved?: string }
         <p className="text-sm text-muted">Used for drive times, routes, budget warnings, stamp duty and to tailor every AI report to you.</p>
       </div>
       {saved && (
-        <p className={`rounded-lg px-3 py-2 text-sm ${saved === "11" ? "bg-emerald-50 text-good" : "bg-amber-50 text-warn"}`}>
-          Saved. {saved !== "11" && "One address couldn't be located. Try a full postcode (e.g. CR7 8AA)."}
+        <p className={`rounded-lg px-3 py-2 text-sm ${!saved.includes("0") ? "bg-emerald-50 text-good" : "bg-amber-50 text-warn"}`}>
+          Saved. {saved.includes("0") && "One address couldn't be located. Try a full postcode (e.g. CR7 8AA)."}
         </p>
       )}
       <div className="grid gap-4 sm:grid-cols-2">
@@ -26,6 +26,10 @@ async function Form({ searchParams }: { searchParams: Promise<{ saved?: string }
         <label>
           <span className="label">💼 My office (postcode or address) {located(s?.office_lat)}</span>
           <input name="office_label" className="input" defaultValue={s?.office_label ?? ""} placeholder="EC2A 4NE" />
+        </label>
+        <label className="sm:col-span-2">
+          <span className="label">👩‍💼 Wife&apos;s office (optional) {located(s?.office2_lat)}</span>
+          <input name="office2_label" className="input" defaultValue={s?.office2_label ?? ""} placeholder="RH10 9AD" />
         </label>
         <label>
           <span className="label">Budget from £</span>

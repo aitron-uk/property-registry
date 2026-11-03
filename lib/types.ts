@@ -105,6 +105,9 @@ export type Settings = {
   office_label: string | null;
   office_lat: number | null;
   office_lng: number | null;
+  office2_label: string | null;
+  office2_lat: number | null;
+  office2_lng: number | null;
   budget_min: number | null;
   budget_max: number | null;
   buyer_type: "standard" | "first_time" | "additional";

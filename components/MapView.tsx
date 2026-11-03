@@ -5,11 +5,11 @@ import { useEffect } from "react";
 import { Circle, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, useMap } from "react-leaflet";
 import type { Place, Property, Settings } from "@/lib/types";
 import { CATS } from "@/lib/places";
-import { gbpShort } from "@/lib/calc";
+import { gbpShort, origins, ORIGINS, type Kind } from "@/lib/calc";
 import { scoreColor } from "./ui";
 
 type LL = [number, number];
-export type Route = { line: LL[]; mins: number; km: number; kind: "home" | "office" };
+export type Route = { line: LL[]; mins: number; km: number; kind: Kind };
 
 const pin = (html: string, size: number, bg: string, ring = false) =>
   L.divIcon({
@@ -56,8 +56,8 @@ export default function MapView({
   fitTo?: "all" | "selected" | "local";
   places?: Place[];
 }) {
-  const home: LL | null = settings?.home_lat ? [settings.home_lat, settings.home_lng!] : null;
-  const office: LL | null = settings?.office_lat ? [settings.office_lat, settings.office_lng!] : null;
+  const from = origins(settings);
+  const home = from.find((o) => o.kind === "home")?.ll ?? null;
   const placed = properties.filter((p) => p.lat && p.lng);
 
   const pts: LL[] = placed.map((p) => [p.lat!, p.lng!]);
@@ -66,8 +66,7 @@ export default function MapView({
     const [lat, lng] = pts[0] ?? [0, 0];
     pts.push([lat + 0.0055, lng + 0.009], [lat - 0.0055, lng - 0.009]);
   } else {
-    if (home) pts.push(home);
-    if (office && fitTo !== "selected") pts.push(office);
+    from.forEach((o) => pts.push(o.ll));
     routes.forEach((r) => pts.push(...r.line.filter((_, i) => i % 20 === 0)));
   }
 
@@ -96,23 +95,20 @@ export default function MapView({
           <Polyline
             key={r.kind}
             positions={r.line}
-            pathOptions={{ color: r.kind === "home" ? "#0f766e" : "#4f46e5", weight: 5, opacity: 0.8 }}
+            pathOptions={{ color: ORIGINS[r.kind].color, weight: 5, opacity: 0.8 }}
           >
             <Tooltip sticky>
-              {r.kind === "home" ? "From home" : "From office"}: {r.mins} min · {r.km} km
+              {ORIGINS[r.kind].name}: {r.mins} min · {r.km} km
             </Tooltip>
           </Polyline>
         ))}
-        {home && (
-          <Marker position={home} icon={pin("🏠", 34, "#16181d")}>
-            <Tooltip>Home · {settings?.home_label}</Tooltip>
+        {from.map((o) => (
+          <Marker key={o.kind} position={o.ll} icon={pin(ORIGINS[o.kind].emoji, 34, o.kind === "home" ? "#16181d" : ORIGINS[o.kind].color)}>
+            <Tooltip>
+              {ORIGINS[o.kind].name} · {o.label}
+            </Tooltip>
           </Marker>
-        )}
-        {office && (
-          <Marker position={office} icon={pin("💼", 34, "#4f46e5")}>
-            <Tooltip>Office · {settings?.office_label}</Tooltip>
-          </Marker>
-        )}
+        ))}
         {placed.map((p) => {
           const sel = p.id === selectedId;
           const dim = p.status === "rejected";

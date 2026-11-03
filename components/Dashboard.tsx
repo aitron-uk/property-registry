@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import type { Property, Settings } from "@/lib/types";
 import { STATUSES } from "@/lib/types";
-import { allInCost, gbp, gbpShort, haversineKm, median, refurbEstimate, stampDuty } from "@/lib/calc";
+import { ORIGINS, allInCost, gbp, gbpShort, haversineKm, median, origins, refurbEstimate, stampDuty, type Kind } from "@/lib/calc";
 import { driveRoute, driveTable, type Drive } from "@/lib/osrm";
 import { quickUpdate } from "@/app/actions";
 import { alertCount, bestSchool, noisyNeighbours, ofstedLabel, ofstedRank, within } from "@/lib/places";
@@ -14,8 +14,19 @@ import { DecorChip, Flag, Score, Stars, Stat, StatusChip } from "./ui";
 
 const MapView = dynamic(() => import("./MapView"), { ssr: false, loading: () => <div className="h-full animate-pulse rounded-2xl bg-line/50" /> });
 
-type Row = Property & { refurb: number; allIn: number | null; sdlt: number | null; home: Drive | null; office: Drive | null; homeKm: number | null; officeKm: number | null };
-type SortKey = "score" | "price" | "ppsf" | "allIn" | "office" | "home" | "station" | "newest" | "rating" | "size" | "schools" | "alerts";
+type Row = Property & {
+  refurb: number;
+  allIn: number | null;
+  sdlt: number | null;
+  home: Drive | null;
+  office: Drive | null;
+  office2: Drive | null;
+  homeKm: number | null;
+  officeKm: number | null;
+  office2Km: number | null;
+  both: number | null; // combined minutes to both offices
+};
+type SortKey = "score" | "price" | "ppsf" | "allIn" | "office" | "office2" | "both" | "home" | "station" | "newest" | "rating" | "size" | "schools" | "alerts";
 
 const SORTS: [SortKey, string][] = [
   ["score", "AI score"],
@@ -25,7 +36,9 @@ const SORTS: [SortKey, string][] = [
   ["price", "Price"],
   ["allIn", "All-in cost"],
   ["size", "Size"],
-  ["office", "Drive to office"],
+  ["both", "Both commutes"],
+  ["office", "Drive to my office"],
+  ["office2", "Drive to wife's office"],
   ["home", "Drive to home"],
   ["station", "Station distance"],
   ["rating", "My rating"],
@@ -40,6 +53,8 @@ const sortVal = (r: Row, k: SortKey): number | null =>
     allIn: r.allIn,
     size: r.size_sqft == null ? null : -r.size_sqft,
     office: r.office?.mins ?? null,
+    office2: r.office2?.mins ?? null,
+    both: r.both,
     home: r.home?.mins ?? null,
     station: r.station_distance_km,
     rating: r.my_rating == null ? null : -r.my_rating,
@@ -49,10 +64,11 @@ const sortVal = (r: Row, k: SortKey): number | null =>
   })[k];
 
 export default function Dashboard({ properties, settings }: { properties: Property[]; settings: Settings | null }) {
-  const home: [number, number] | null = settings?.home_lat ? [settings.home_lat, settings.home_lng!] : null;
-  const office: [number, number] | null = settings?.office_lat ? [settings.office_lat, settings.office_lng!] : null;
+  const from = origins(settings);
+  const ll = (k: Kind) => from.find((o) => o.kind === k)?.ll ?? null;
+  const hasOffice2 = !!ll("office2");
 
-  const [drives, setDrives] = useState<Record<string, { home: Drive | null; office: Drive | null }>>({});
+  const [drives, setDrives] = useState<Record<string, Partial<Record<Kind, Drive | null>>>>({});
   const [selected, setSelected] = useState<string | null>(null);
   const [routes, setRoutes] = useState<Route[]>([]);
   const [view, setView] = useState<"cards" | "table">("cards");
@@ -63,17 +79,16 @@ export default function Dashboard({ properties, settings }: { properties: Proper
   const [beds, setBeds] = useState<string>("");
   const [, startTransition] = useTransition();
 
-  // One OSRM request for all drive times from home & office.
+  // One OSRM request for all drive times from home and both offices.
   const placed = properties.filter((p) => p.lat && p.lng);
-  const placedKey = placed.map((p) => p.id + p.lat + p.lng).join() + home + office;
+  const placedKey = placed.map((p) => p.id + p.lat + p.lng).join() + JSON.stringify(from);
   useEffect(() => {
-    const origins = [home, office].filter(Boolean) as [number, number][];
-    if (!origins.length || !placed.length) return;
-    driveTable(origins, placed.map((p) => [p.lat!, p.lng!]))
+    if (!from.length || !placed.length) return;
+    driveTable(from.map((o) => o.ll), placed.map((p) => [p.lat!, p.lng!]))
       .then((t) => {
         const out: typeof drives = {};
         placed.forEach((p, j) => {
-          out[p.id] = { home: home ? t[0]?.[j] : null, office: office ? t[home ? 1 : 0]?.[j] : null };
+          out[p.id] = Object.fromEntries(from.map((o, i) => [o.kind, t[i]?.[j] ?? null]));
         });
         setDrives(out);
       })
@@ -81,28 +96,32 @@ export default function Dashboard({ properties, settings }: { properties: Proper
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placedKey]);
 
-  // Select a property and draw its driving routes from home & office.
+  // Select a property and draw its driving routes from home and the offices.
   function select(id: string) {
     setSelected(id);
     const p = properties.find((x) => x.id === id);
     if (!p?.lat) return setRoutes([]);
     const to: [number, number] = [p.lat, p.lng!];
-    Promise.all([home && driveRoute(home, to), office && driveRoute(office, to)]).then(([h, o]) =>
-      setRoutes([h && { ...h, kind: "home" as const }, o && { ...o, kind: "office" as const }].filter(Boolean) as Route[]),
-    );
+    Promise.all(from.map((o) => driveRoute(o.ll, to).then((r) => r && { ...r, kind: o.kind }))).then((rs) => setRoutes(rs.filter(Boolean) as Route[]));
   }
 
   const rows: Row[] = properties.map((p) => {
-        const ll: [number, number] | null = p.lat ? [p.lat, p.lng!] : null;
+        const here: [number, number] | null = p.lat ? [p.lat, p.lng!] : null;
+        const km = (k: Kind) => (here && ll(k) ? Math.round(haversineKm(here, ll(k)!) * 10) / 10 : null);
+        const d = drives[p.id] ?? {};
+        const offices = [d.office?.mins, d.office2?.mins].filter((x): x is number => x != null);
         return {
           ...p,
           refurb: refurbEstimate(p),
           allIn: allInCost(p, settings),
           sdlt: p.price ? stampDuty(p.price, settings?.buyer_type) : null,
-          home: drives[p.id]?.home ?? null,
-          office: drives[p.id]?.office ?? null,
-          homeKm: ll && home ? Math.round(haversineKm(ll, home) * 10) / 10 : null,
-          officeKm: ll && office ? Math.round(haversineKm(ll, office) * 10) / 10 : null,
+          home: d.home ?? null,
+          office: d.office ?? null,
+          office2: d.office2 ?? null,
+          homeKm: km("home"),
+          officeKm: km("office"),
+          office2Km: km("office2"),
+          both: offices.length ? offices.reduce((a, b) => a + b, 0) : null,
         };
       });
 
@@ -126,7 +145,7 @@ export default function Dashboard({ properties, settings }: { properties: Proper
     <div className="space-y-5">
       <AddBar />
 
-      {!home && !office && (
+      {!from.length && (
         <Link href="/settings" className="card flex items-center gap-3 border-dashed p-4 text-sm hover:bg-brand-soft">
           <span className="text-xl">📍</span>
           <span>
@@ -141,7 +160,7 @@ export default function Dashboard({ properties, settings }: { properties: Proper
         <Stat label="Median price" value={gbpShort(median(active.map((r) => r.price).filter((x): x is number => x != null)))} hint={settings?.budget_max ? `Budget ${gbpShort(settings.budget_min)}–${gbpShort(settings.budget_max)}` : "Set a budget in Settings"} />
         <Stat label="Median £ / sq ft" value={medPpsf ? gbp(medPpsf) : "—"} hint={ppsfs.length ? `Range ${gbp(Math.min(...ppsfs))}–${gbp(Math.max(...ppsfs))}` : "Needs sizes"} />
         <Stat label="Avg size" value={avg(active.map((r) => r.size_sqft)) ? `${avg(active.map((r) => r.size_sqft))} ft²` : "—"} hint={`${avg(active.map((r) => r.bedrooms)) ?? "—"} beds on average`} />
-        <Stat label="Best commute" value={minBy(active, (r) => r.office?.mins)?.office ? `${minBy(active, (r) => r.office?.mins)!.office!.mins} min` : office && placed.length && !Object.keys(drives).length ? "…" : "—"} hint={minBy(active, (r) => r.office?.mins)?.address ?? "Drive to office"} />
+        <CommuteStat rows={active} loading={from.length > 0 && placed.length > 0 && !Object.keys(drives).length} both={hasOffice2} />
         <Stat label="Avg AI score" value={avg(active.map((r) => r.ai_score)) ?? "—"} hint={`${active.filter((r) => (r.ai_score ?? 0) >= 70).length} strong contenders (70+)`} />
       </div>
 
@@ -219,7 +238,7 @@ export default function Dashboard({ properties, settings }: { properties: Proper
         <div className="space-y-4">
           <MapView properties={visible} settings={settings} selectedId={selected} onSelect={select} routes={routes} className="h-[380px]" fitTo="all" />
           <RouteLegend routes={routes} />
-          <Datasheet rows={visible} medPpsf={medPpsf} selected={selected} onSelect={select} onStatus={setStatusFor} onRate={setRating} />
+          <Datasheet rows={visible} hasOffice2={hasOffice2} medPpsf={medPpsf} selected={selected} onSelect={select} onStatus={setStatusFor} onRate={setRating} />
         </div>
       )}
     </div>
@@ -227,13 +246,13 @@ export default function Dashboard({ properties, settings }: { properties: Proper
 }
 
 function RouteLegend({ routes }: { routes: Route[] }) {
-  if (!routes.length) return <p className="mt-2 text-xs text-muted">Click a pin or card to draw driving routes from home and office.</p>;
+  if (!routes.length) return <p className="mt-2 text-xs text-muted">Click a pin or card to draw driving routes from home and the offices.</p>;
   return (
-    <div className="mt-2 flex gap-4 text-xs">
+    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
       {routes.map((r) => (
         <span key={r.kind} className="flex items-center gap-1.5">
-          <span className="h-1 w-5 rounded" style={{ background: r.kind === "home" ? "#0f766e" : "#4f46e5" }} />
-          {r.kind === "home" ? "Home" : "Office"}: <b>{r.mins} min</b> · {r.km} km drive
+          <span className="h-1 w-5 rounded" style={{ background: ORIGINS[r.kind].color }} />
+          {ORIGINS[r.kind].name}: <b>{r.mins} min</b> · {r.km} km drive
         </span>
       ))}
     </div>
@@ -281,15 +300,21 @@ function Card({ r, medPpsf, selected, onSelect, onRate }: { r: Row; medPpsf: num
           <span>📐 {r.size_sqft ? `${r.size_sqft} ft²` : "size ?"}</span>
           <span>🚗 {r.parking ?? "parking ?"}</span>
         </div>
-        <div className="grid grid-cols-3 gap-2 rounded-xl bg-paper p-2 text-center text-xs">
+        <div className={`grid ${r.office2 || r.office2Km != null ? "grid-cols-4" : "grid-cols-3"} gap-2 rounded-xl bg-paper p-2 text-center text-xs`}>
           <div>
             <div className="text-muted">£/ft²</div>
             <PpsfTag v={r.price_per_sqft} med={medPpsf} />
           </div>
           <div>
-            <div className="text-muted">Office</div>
+            <div className="text-muted">{r.office2 || r.office2Km != null ? "My office" : "Office"}</div>
             <b className="tabular-nums">{r.office ? `${r.office.mins}m` : r.officeKm != null ? `${r.officeKm}km` : "—"}</b>
           </div>
+          {(r.office2 || r.office2Km != null) && (
+            <div>
+              <div className="text-muted">Wife</div>
+              <b className="tabular-nums">{r.office2 ? `${r.office2.mins}m` : `${r.office2Km}km`}</b>
+            </div>
+          )}
           <div>
             <div className="text-muted">Station</div>
             <b className="tabular-nums">{r.station_distance_km != null ? `${r.station_distance_km}km` : "—"}</b>
@@ -317,7 +342,7 @@ function Card({ r, medPpsf, selected, onSelect, onRate }: { r: Row; medPpsf: num
   );
 }
 
-function Datasheet({ rows, medPpsf, selected, onSelect, onStatus, onRate }: { rows: Row[]; medPpsf: number | null; selected: string | null; onSelect: (id: string) => void; onStatus: (id: string, s: string) => void; onRate: (id: string, v: number | null) => void }) {
+function Datasheet({ rows, hasOffice2, medPpsf, selected, onSelect, onStatus, onRate }: { rows: Row[]; hasOffice2: boolean; medPpsf: number | null; selected: string | null; onSelect: (id: string) => void; onStatus: (id: string, s: string) => void; onRate: (id: string, v: number | null) => void }) {
   const th = "px-3 py-2 text-left text-xs font-medium text-muted whitespace-nowrap";
   const td = "px-3 py-2 whitespace-nowrap tabular-nums";
   return (
@@ -325,7 +350,7 @@ function Datasheet({ rows, medPpsf, selected, onSelect, onStatus, onRate }: { ro
       <table className="w-full text-sm">
         <thead className="border-b border-line bg-paper/60">
           <tr>
-            {["", "Property", "Price", "Size", "£/ft²", "Beds", "Baths", "Parking", "Station", "Schools ≤1km", "Best school", "Pubs ≤300m", "Alerts", "Condition", "Work", "Refurb", "Stamp duty", "All-in", "Home", "Office", "Score", "Status", "Mine", ""].map((h, i) => (
+            {["", "Property", "Price", "Size", "£/ft²", "Beds", "Baths", "Parking", "Station", "Schools ≤1km", "Best school", "Pubs ≤300m", "Alerts", "Condition", "Work", "Refurb", "Stamp duty", "All-in", "Home", hasOffice2 ? "My office" : "Office", ...(hasOffice2 ? ["Wife's office", "Both"] : []), "Score", "Status", "Mine", ""].map((h, i) => (
               <th key={i} className={th}>
                 {h}
               </th>
@@ -378,6 +403,12 @@ function Datasheet({ rows, medPpsf, selected, onSelect, onStatus, onRate }: { ro
               <td className={`${td} font-medium`}>{gbpShort(r.allIn)}</td>
               <td className={td}>{r.home ? `${r.home.mins} min` : r.homeKm != null ? `${r.homeKm} km` : "—"}</td>
               <td className={td}>{r.office ? `${r.office.mins} min` : r.officeKm != null ? `${r.officeKm} km` : "—"}</td>
+              {hasOffice2 && (
+                <>
+                  <td className={td}>{r.office2 ? `${r.office2.mins} min` : r.office2Km != null ? `${r.office2Km} km` : "—"}</td>
+                  <td className={`${td} font-medium`}>{r.both != null ? `${r.both} min` : "—"}</td>
+                </>
+              )}
               <td className={td}>
                 <Score value={r.ai_score} />
               </td>
@@ -425,6 +456,19 @@ function SchoolLine({ r }: { r: Row }) {
   );
 }
 
+function CommuteStat({ rows, loading, both }: { rows: Row[]; loading: boolean; both: boolean }) {
+  const best = minBy(rows, (r) => (both ? r.both : r.office?.mins));
+  if (!best || (both ? best.both == null : !best.office))
+    return <Stat label="Best commute" value={loading ? "…" : "—"} hint={both ? "Both offices" : "Drive to office"} />;
+  return (
+    <Stat
+      label={both ? "Best for both commutes" : "Best commute"}
+      value={both ? `${best.office?.mins ?? "?"} + ${best.office2?.mins ?? "?"} min` : `${best.office!.mins} min`}
+      hint={best.address ?? best.title}
+    />
+  );
+}
+
 function Empty() {
   return (
     <div className="card grid place-items-center gap-2 p-12 text-center">
@@ -461,7 +505,12 @@ function buildInsights(rows: Row[], medPpsf: number | null, s: Settings | null) 
   const top = minBy(rows, (r) => (r.ai_score == null ? null : -r.ai_score));
   if (top?.ai_score) out.push({ icon: "🏆", id: top.id, text: `Highest AI score: ${name(top)} (${top.ai_score}/100). ${top.ai?.verdict?.split(". ")[0] ?? ""}` });
   const commute = minBy(rows, (r) => r.office?.mins);
-  if (commute?.office) out.push({ icon: "🚗", id: commute.id, text: `Shortest drive to the office: ${name(commute)}, ${commute.office.mins} min (${commute.office.km} km).` });
+  if (commute?.office) out.push({ icon: "💼", id: commute.id, text: `Shortest drive to my office: ${name(commute)}, ${commute.office.mins} min (${commute.office.km} km).` });
+  const wife = minBy(rows, (r) => r.office2?.mins);
+  if (wife?.office2) out.push({ icon: "👩‍💼", id: wife.id, text: `Shortest drive to wife's office: ${name(wife)}, ${wife.office2.mins} min (${wife.office2.km} km).` });
+  const both = minBy(rows.filter((r) => r.office && r.office2), (r) => r.both);
+  if (both?.office && both.office2)
+    out.push({ icon: "🤝", id: both.id, text: `Best for both commutes: ${name(both)}: ${both.office.mins} min for you, ${both.office2.mins} min for your wife.` });
   const big = minBy(rows, (r) => (r.size_sqft == null ? null : -r.size_sqft));
   if (big?.size_sqft) out.push({ icon: "📐", id: big.id, text: `Most space: ${name(big)} with ${big.size_sqft} ft² for ${gbpShort(big.price)}.` });
   const ready = rows.filter((r) => r.decor_state === "move-in ready" && !r.needs_kitchen && !r.needs_bathroom);
@@ -485,7 +534,7 @@ function buildInsights(rows: Row[], medPpsf: number | null, s: Settings | null) 
   if (noisy.length) out.push({ icon: "🍺", id: noisy[0].id, text: `${noisy.length} ${noisy.length === 1 ? "has" : "have"} a pub or takeaway within 150 m (possible noise), e.g. ${name(noisy[0])}.` });
   const noParking = rows.filter((r) => r.parking === "none" || r.parking === "on-street");
   if (noParking.length) out.push({ icon: "🅿️", text: `${noParking.length} ${noParking.length === 1 ? "has" : "have"} no private parking (on-street or none).` });
-  return out.slice(0, 9);
+  return out.slice(0, 12);
 }
 
 function downloadCsv(rows: Row[]) {
@@ -509,7 +558,8 @@ function downloadCsv(rows: Row[]) {
     ["Stamp duty", (r) => r.sdlt],
     ["All-in", (r) => r.allIn],
     ["Drive home min", (r) => r.home?.mins],
-    ["Drive office min", (r) => r.office?.mins],
+    ["Drive my office min", (r) => r.office?.mins],
+    ["Drive wife's office min", (r) => r.office2?.mins],
     ["Schools within 1km", (r) => within(r.nearby, "school", 1000)],
     ["Best school", (r) => bestSchool(r.ai, 1000)?.name],
     ["Best school Ofsted", (r) => bestSchool(r.ai, 1000)?.rating],

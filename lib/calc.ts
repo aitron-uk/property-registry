@@ -1,5 +1,20 @@
 import type { Property, Settings } from "./types";
 
+// The places you commute from/to. Everything that shows drive times loops over this list.
+export type Kind = "home" | "office" | "office2";
+export const ORIGINS: Record<Kind, { name: string; emoji: string; color: string }> = {
+  home: { name: "Home", emoji: "🏠", color: "#0f766e" },
+  office: { name: "My office", emoji: "💼", color: "#4f46e5" },
+  office2: { name: "Wife's office", emoji: "👩‍💼", color: "#db2777" },
+};
+export function origins(s: Settings | null) {
+  const out: { kind: Kind; ll: [number, number]; label: string }[] = [];
+  if (s?.home_lat && s.home_lng) out.push({ kind: "home", ll: [s.home_lat, s.home_lng], label: s.home_label ?? "" });
+  if (s?.office_lat && s.office_lng) out.push({ kind: "office", ll: [s.office_lat, s.office_lng], label: s.office_label ?? "" });
+  if (s?.office2_lat && s.office2_lng) out.push({ kind: "office2", ll: [s.office2_lat, s.office2_lng], label: s.office2_label ?? "" });
+  return out;
+}
+
 export const gbp = (n: number | null | undefined) =>
   n == null ? "—" : "£" + Math.round(n).toLocaleString("en-GB");
 

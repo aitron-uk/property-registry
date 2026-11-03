@@ -81,7 +81,8 @@ export async function saveSettings(form: FormData) {
   await guard();
   const home = s(form.get("home_label"));
   const office = s(form.get("office_label"));
-  const [h, o] = await Promise.all([geocode(home), geocode(office)]);
+  const office2 = s(form.get("office2_label"));
+  const [h, o, o2] = await Promise.all([geocode(home), geocode(office), geocode(office2)]);
   const { error } = await db()
     .from("settings")
     .upsert({
@@ -92,6 +93,9 @@ export async function saveSettings(form: FormData) {
       office_label: office,
       office_lat: o?.[0] ?? null,
       office_lng: o?.[1] ?? null,
+      office2_label: office2,
+      office2_lat: o2?.[0] ?? null,
+      office2_lng: o2?.[1] ?? null,
       budget_min: n(form.get("budget_min")),
       budget_max: n(form.get("budget_max")),
       buyer_type: s(form.get("buyer_type")) ?? "standard",
@@ -99,7 +103,9 @@ export async function saveSettings(form: FormData) {
     });
   if (error) throw error;
   revalidatePath("/", "layout");
-  redirect(`/settings?saved=${h ? 1 : 0}${o ? 1 : 0}`);
+  // 1 = located (or left empty), 0 = couldn't find that address
+  const ok = (label: string | null, ll: unknown) => (!label || ll ? 1 : 0);
+  redirect(`/settings?saved=${ok(home, h)}${ok(office, o)}${ok(office2, o2)}`);
 }
 
 export async function login(_: unknown, form: FormData) {

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import type { Property, Report, Settings } from "@/lib/types";
 import { DECOR, PARKING, STATUSES } from "@/lib/types";
-import { LEGAL_FEES, gbp, gbpShort, gmapsDirections, refurbEstimate, stampDuty } from "@/lib/calc";
+import { LEGAL_FEES, ORIGINS, gbp, gbpShort, gmapsDirections, origins, refurbEstimate, stampDuty } from "@/lib/calc";
 import { driveRoute } from "@/lib/osrm";
 import { deleteProperty, refreshNearby, updateProperty } from "@/app/actions";
 import { CATS, nearest, noisyNeighbours, ofstedRank, within } from "@/lib/places";
@@ -28,8 +28,7 @@ const DEMO_COLORS = ["#64748b", "#0f766e", "#d97706", "#7c3aed", "#db2777", "#02
 
 export default function Detail({ p, settings }: { p: Property; settings: Settings | null }) {
   const r = p.ai;
-  const home: [number, number] | null = settings?.home_lat ? [settings.home_lat, settings.home_lng!] : null;
-  const office: [number, number] | null = settings?.office_lat ? [settings.office_lat, settings.office_lng!] : null;
+  const from = origins(settings);
   const here: [number, number] | null = p.lat ? [p.lat, p.lng!] : null;
   const [routes, setRoutes] = useState<Route[]>([]);
   const [img, setImg] = useState(p.image_url);
@@ -37,8 +36,8 @@ export default function Detail({ p, settings }: { p: Property; settings: Setting
 
   useEffect(() => {
     if (!here) return;
-    Promise.all([home && driveRoute(home, here), office && driveRoute(office, here)]).then(([h, o]) =>
-      setRoutes([h && { ...h, kind: "home" as const }, o && { ...o, kind: "office" as const }].filter(Boolean) as Route[]),
+    Promise.all(from.map((o) => driveRoute(o.ll, here).then((r) => r && { ...r, kind: o.kind }))).then((rs) =>
+      setRoutes(rs.filter(Boolean) as Route[]),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.lat, p.lng]);
@@ -318,32 +317,29 @@ export default function Detail({ p, settings }: { p: Property; settings: Setting
             )}
             {here && (
               <div className="mt-3 grid gap-2 text-sm">
-                {[
-                  ["🏠 From home", home, routes.find((x) => x.kind === "home")],
-                  ["💼 From office", office, routes.find((x) => x.kind === "office")],
-                ].map(([label, from, route]) =>
-                  from ? (
-                    <div key={label as string} className="flex items-center gap-2 rounded-xl bg-paper px-3 py-2">
-                      <span className="font-medium">{label as string}</span>
-                      {route ? (
-                        <span className="tabular-nums text-muted">
-                          {(route as Route).mins} min · {(route as Route).km} km
-                        </span>
-                      ) : (
-                        <span className="text-muted">…</span>
-                      )}
+                {from.map((o) => {
+                  const route = routes.find((x) => x.kind === o.kind);
+                  // Offices: directions from the house (the morning commute). Home: from your current home.
+                  const [a, b] = o.kind === "home" ? [o.ll, here] : [here, o.ll];
+                  return (
+                    <div key={o.kind} className="flex items-center gap-2 rounded-xl bg-paper px-3 py-2">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: ORIGINS[o.kind].color }} />
+                      <span className="font-medium">
+                        {ORIGINS[o.kind].emoji} {o.kind === "home" ? "From home" : `To ${ORIGINS[o.kind].name.toLowerCase()}`}
+                      </span>
+                      <span className="tabular-nums text-muted">{route ? `${route.mins} min · ${route.km} km` : "…"}</span>
                       <span className="ml-auto flex gap-2 text-xs">
-                        <a className="text-brand hover:underline" target="_blank" rel="noreferrer" href={gmapsDirections(from as [number, number], here, "driving")}>
+                        <a className="text-brand hover:underline" target="_blank" rel="noreferrer" href={gmapsDirections(a, b, "driving")}>
                           Drive ↗
                         </a>
-                        <a className="text-brand hover:underline" target="_blank" rel="noreferrer" href={gmapsDirections(from as [number, number], here, "transit")}>
+                        <a className="text-brand hover:underline" target="_blank" rel="noreferrer" href={gmapsDirections(a, b, "transit")}>
                           Train/bus ↗
                         </a>
                       </span>
                     </div>
-                  ) : null,
-                )}
-                {!home && !office && (
+                  );
+                })}
+                {!from.length && (
                   <Link href="/settings" className="text-brand hover:underline">
                     Set home & office for routes →
                   </Link>

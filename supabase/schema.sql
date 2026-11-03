@@ -48,11 +48,17 @@ create table if not exists settings (
   office_label text,
   office_lat double precision,
   office_lng double precision,
+  office2_label text,
+  office2_lat double precision,
+  office2_lng double precision,
   budget_min integer,
   budget_max integer,
   buyer_type text not null default 'standard',  -- standard | first_time | additional
   buyer_context text          -- e.g. "family with a young child, selling our current home"
 );
+alter table settings add column if not exists office2_label text;
+alter table settings add column if not exists office2_lat double precision;
+alter table settings add column if not exists office2_lng double precision;
 insert into settings (id) values (1) on conflict do nothing;
 
 -- Lock tables down: the app only talks to Supabase from the server with the service-role key.

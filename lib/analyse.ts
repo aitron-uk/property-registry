@@ -180,7 +180,8 @@ export async function analyse(url: string, page: Page, extraText: string, s: Set
     s?.buyer_context && `Buyer: ${s.buyer_context}.`,
     s?.budget_min || s?.budget_max ? `Budget: £${s?.budget_min ?? "?"}–£${s?.budget_max ?? "?"}.` : "",
     s?.home_label && `Current home: ${s.home_label}.`,
-    s?.office_label && `Office: ${s.office_label}.`,
+    s?.office_label && `Buyer's office: ${s.office_label}.`,
+    s?.office2_label && `Wife's office: ${s.office2_label} (consider both commutes).`,
     `Stamp duty buyer type: ${s?.buyer_type ?? "standard"}.`,
   ]
     .filter(Boolean)
