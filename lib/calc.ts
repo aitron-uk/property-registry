@@ -85,3 +85,41 @@ export const median = (xs: number[]) => {
 
 export const gmapsDirections = (from: [number, number], to: [number, number], mode: "driving" | "transit" | "walking") =>
   `https://www.google.com/maps/dir/?api=1&origin=${from.join(",")}&destination=${to.join(",")}&travelmode=${mode}`;
+
+// Fields you can edit from the fact tiles, and how to read what you type.
+export const FACT_FIELDS = {
+  property_type: "text",
+  bedrooms: "int",
+  bathrooms: "int",
+  receptions: "int",
+  size_sqft: "size",
+  tenure: "text",
+  parking: "text",
+  garden: "text",
+  council_tax_band: "text",
+  epc_rating: "text",
+  nearest_station: "text",
+  station_distance_km: "num",
+  agent: "text",
+  listed_date: "date",
+  flood_risk: "ai", // stored inside the AI report
+  broadband: "ai",
+} as const;
+export type FactField = keyof typeof FACT_FIELDS;
+
+/** Parse a typed value. Returns { value } or { error }. Empty input clears the field. */
+export function parseFact(field: FactField, raw: string): { value: string | number | null } | { error: string } {
+  const v = raw.trim();
+  if (!v) return { value: null };
+  const kind = FACT_FIELDS[field];
+  if (kind === "text" || kind === "ai") return { value: v.slice(0, 200) };
+  if (kind === "date") {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return { value: v };
+    const m = v.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/); // UK dd/mm/yyyy
+    return m ? { value: `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` } : { error: "Use a date like 15/10/2026" };
+  }
+  const n = Number(v.replace(/[£,\s]|sq|ft²?|km|m²|sqm/gi, "").replace(/m$/i, ""));
+  if (!Number.isFinite(n) || n < 0) return { error: "Enter a number" };
+  if (kind === "size") return { value: Math.round(/m²|sq\s*m|sqm|\bm\b|m$/i.test(v) ? n * 10.764 : n) }; // "56 sq m" → ft²
+  return { value: kind === "int" ? Math.round(n) : Math.round(n * 100) / 100 };
+}

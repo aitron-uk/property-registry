@@ -19,3 +19,19 @@ assert.equal(refurbEstimate({ ...base, ai, needs_kitchen: true }), 21_000); // t
 const aiK = { refurb: { items: [{ item: "New kitchen", low: 10000, high: 20000 }], notes: "" } } as never;
 assert.equal(refurbEstimate({ ...base, ai: aiK, needs_kitchen: true }), 15_000); // no double count
 console.log("calc ok");
+
+import { parseFact } from "./calc.ts";
+assert.deepEqual(parseFact("size_sqft", "990"), { value: 990 });
+assert.deepEqual(parseFact("size_sqft", "990 sq ft"), { value: 990 });
+assert.deepEqual(parseFact("size_sqft", "1,050 ft²"), { value: 1050 });
+assert.deepEqual(parseFact("size_sqft", "56 sq m"), { value: 603 });
+assert.deepEqual(parseFact("size_sqft", "92m²"), { value: 990 });
+assert.deepEqual(parseFact("receptions", "2"), { value: 2 });
+assert.deepEqual(parseFact("station_distance_km", "1.3 km"), { value: 1.3 });
+assert.deepEqual(parseFact("listed_date", "15/10/2026"), { value: "2026-10-15" });
+assert.deepEqual(parseFact("listed_date", "2026-10-15"), { value: "2026-10-15" });
+assert.ok("error" in parseFact("listed_date", "last week"));
+assert.ok("error" in parseFact("bedrooms", "three"));
+assert.deepEqual(parseFact("epc_rating", " C "), { value: "C" });
+assert.deepEqual(parseFact("size_sqft", ""), { value: null });
+console.log("parseFact ok");

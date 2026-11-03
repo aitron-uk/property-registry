@@ -6,6 +6,7 @@ import { db, dbErrorHelp, getProperty } from "@/lib/db";
 import { geocode } from "@/lib/geo";
 import { nearby } from "@/lib/nearby";
 import { authToken, isAuthed } from "@/lib/auth";
+import { FACT_FIELDS, parseFact, type FactField } from "@/lib/calc";
 
 // Server actions can be POSTed to any URL (even /login), so each one checks the cookie itself.
 async function guard() {
@@ -15,41 +16,56 @@ async function guard() {
 const n = (v: FormDataEntryValue | null) => (v === null || v === "" ? null : Number(v));
 const s = (v: FormDataEntryValue | null) => (v === null || v === "" ? null : String(v));
 
+// Saves only the fields the form actually contains, so it never blanks fields edited elsewhere.
+const FORM_FIELDS = {
+  title: s,
+  address: s,
+  postcode: s,
+  price: n,
+  decor_state: s,
+  status: s,
+  my_rating: n,
+  notes: s,
+} as const;
+
 export async function updateProperty(id: string, form: FormData) {
   await guard();
-  const row = {
-    title: s(form.get("title")),
-    address: s(form.get("address")),
-    postcode: s(form.get("postcode")),
-    price: n(form.get("price")),
-    size_sqft: n(form.get("size_sqft")),
-    bedrooms: n(form.get("bedrooms")),
-    bathrooms: n(form.get("bathrooms")),
-    receptions: n(form.get("receptions")),
-    property_type: s(form.get("property_type")),
-    tenure: s(form.get("tenure")),
-    parking: s(form.get("parking")),
-    garden: s(form.get("garden")),
-    nearest_station: s(form.get("nearest_station")),
-    station_distance_km: n(form.get("station_distance_km")),
-    decor_state: s(form.get("decor_state")),
-    needs_kitchen: form.get("needs_kitchen") === "on",
-    needs_bathroom: form.get("needs_bathroom") === "on",
-    council_tax_band: s(form.get("council_tax_band")),
-    epc_rating: s(form.get("epc_rating")),
-    status: s(form.get("status")) ?? "interested",
-    my_rating: n(form.get("my_rating")),
-    notes: s(form.get("notes")),
-  };
+  const row: Record<string, unknown> = {};
+  for (const [k, read] of Object.entries(FORM_FIELDS)) if (form.has(k)) row[k] = read(form.get(k));
+  if (row.status == null && form.has("status")) row.status = "interested";
+  // Checkboxes are absent from FormData when unticked, so read them whenever the form has them.
+  if (form.has("has_checkboxes")) {
+    row.needs_kitchen = form.get("needs_kitchen") === "on";
+    row.needs_bathroom = form.get("needs_bathroom") === "on";
+  }
   const cur = await getProperty(id);
-  const moved = row.postcode && row.postcode !== cur?.postcode ? await geocode(row.postcode) : null;
+  const pc = row.postcode as string | null | undefined;
+  const moved = pc && pc !== cur?.postcode ? await geocode(pc) : null;
   const { error } = await db()
     .from("properties")
     .update(moved ? { ...row, lat: moved[0], lng: moved[1], nearby: await nearby(moved) } : row)
     .eq("id", id);
-  if (error) throw error;
+  if (error) throw new Error(dbErrorHelp(error));
   revalidatePath("/");
   revalidatePath(`/p/${id}`);
+}
+
+/** Edit one fact tile. Returns an error message, or null when saved. */
+export async function updateField(id: string, field: string, raw: string): Promise<string | null> {
+  await guard();
+  if (!(field in FACT_FIELDS)) return "This field can't be edited";
+  const parsed = parseFact(field as FactField, raw);
+  if ("error" in parsed) return parsed.error;
+  let patch: Record<string, unknown> = { [field]: parsed.value };
+  if (FACT_FIELDS[field as FactField] === "ai") {
+    const cur = await getProperty(id);
+    patch = { ai: { ...(cur?.ai ?? {}), [field]: parsed.value ?? "" } };
+  }
+  const { error } = await db().from("properties").update(patch).eq("id", id);
+  if (error) return dbErrorHelp(error);
+  revalidatePath("/");
+  revalidatePath(`/p/${id}`);
+  return null;
 }
 
 export async function quickUpdate(id: string, patch: { status?: string; my_rating?: number | null }) {

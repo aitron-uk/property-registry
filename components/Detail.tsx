@@ -1,12 +1,12 @@
 "use client";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import type { Property, Report, Settings } from "@/lib/types";
 import { DECOR, PARKING, STATUSES } from "@/lib/types";
-import { LEGAL_FEES, ORIGINS, gbp, gbpShort, gmapsDirections, origins, refurbEstimate, stampDuty } from "@/lib/calc";
+import { LEGAL_FEES, ORIGINS, gbp, gbpShort, gmapsDirections, origins, refurbEstimate, stampDuty, type FactField } from "@/lib/calc";
 import { driveRoute } from "@/lib/osrm";
-import { deleteProperty, refreshNearby, updateProperty } from "@/app/actions";
+import { deleteProperty, refreshNearby, updateField, updateProperty } from "@/app/actions";
 import { CATS, nearest, noisyNeighbours, ofstedRank, within } from "@/lib/places";
 import type { Place } from "@/lib/types";
 import { Progress, useAnalyse } from "./AddBar";
@@ -94,33 +94,31 @@ export default function Detail({ p, settings }: { p: Property; settings: Setting
       <Alerts p={p} />
 
       {/* Key facts */}
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-8">
-        {[
-          ["Type", p.property_type],
-          ["Bedrooms", p.bedrooms],
-          ["Bathrooms", p.bathrooms],
-          ["Receptions", p.receptions],
-          ["Size", p.size_sqft && `${p.size_sqft} ft²`],
-          ["Tenure", p.tenure],
-          ["Parking", p.parking],
-          ["Garden", p.garden],
-          ["Council tax", p.council_tax_band && `Band ${p.council_tax_band}`],
-          ["EPC", p.epc_rating],
-          ["Station", p.nearest_station && `${p.nearest_station}${p.station_distance_km != null ? ` · ${p.station_distance_km} km` : ""}`],
-          ["Agent", p.agent],
-          ["Listed", p.listed_date && new Date(p.listed_date).toLocaleDateString("en-GB")],
-          ["Flood risk", r?.flood_risk],
-          ["Broadband", r?.broadband],
-          ["Home drive", routes.find((x) => x.kind === "home") && `${routes.find((x) => x.kind === "home")!.mins} min`],
-        ].map(([k, v]) => (
-          <div key={k as string} className="card px-3 py-2">
-            <div className="text-[11px] text-muted">{k}</div>
-            <div className="truncate text-sm font-medium" title={String(v ?? "")}>
-              {v ?? "—"}
-            </div>
-          </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
+        {(
+          [
+            ["property_type", "Type", p.property_type],
+            ["bedrooms", "Bedrooms", p.bedrooms],
+            ["bathrooms", "Bathrooms", p.bathrooms],
+            ["receptions", "Receptions", p.receptions],
+            ["size_sqft", "Size (ft² or m²)", p.size_sqft, p.size_sqft && `${p.size_sqft} ft²`],
+            ["tenure", "Tenure", p.tenure],
+            ["parking", "Parking", p.parking],
+            ["garden", "Garden", p.garden],
+            ["council_tax_band", "Council tax band", p.council_tax_band, p.council_tax_band && `Band ${p.council_tax_band}`],
+            ["epc_rating", "EPC", p.epc_rating],
+            ["nearest_station", "Nearest station", p.nearest_station],
+            ["station_distance_km", "Station distance", p.station_distance_km, p.station_distance_km != null && `${p.station_distance_km} km`],
+            ["agent", "Agent", p.agent],
+            ["listed_date", "Listed", p.listed_date, p.listed_date && new Date(p.listed_date).toLocaleDateString("en-GB")],
+            ["flood_risk", "Flood risk", r?.flood_risk],
+            ["broadband", "Broadband", r?.broadband],
+          ] as [FactField, string, string | number | null | undefined, (string | false | null | 0)?][]
+        ).map(([field, label, value, shown]) => (
+          <Fact key={field} id={p.id} field={field} label={label} value={value} shown={shown || undefined} />
         ))}
       </div>
+      <p className="-mt-3 text-xs text-muted">Click any detail to correct it or fill in what the listing didn&apos;t say.</p>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         {/* Left: report */}
@@ -401,6 +399,7 @@ function EditForm({ p }: { p: Property }) {
         </label>
       </div>
       <div className="flex gap-4 text-sm">
+        <input type="hidden" name="has_checkboxes" value="1" />
         <label className="flex items-center gap-2">
           <input type="checkbox" name="needs_kitchen" defaultChecked={p.needs_kitchen} className="accent-brand" /> Needs new kitchen
         </label>
@@ -413,32 +412,12 @@ function EditForm({ p }: { p: Property }) {
         <textarea name="notes" className="input h-24" defaultValue={p.notes ?? ""} placeholder="Viewing notes, gut feeling, agent said…" />
       </label>
       <details className="text-sm">
-        <summary className="cursor-pointer text-muted">Edit listing facts</summary>
+        <summary className="cursor-pointer text-muted">Edit title, address, postcode & price</summary>
         <div className="mt-3 grid grid-cols-2 gap-3">
           {field("title", "Title")}
           {field("address", "Address")}
-          {field("postcode", "Postcode")}
+          {field("postcode", "Postcode (moves the map pin)")}
           {field("price", "Price £", "number")}
-          {field("size_sqft", "Size ft²", "number")}
-          {field("bedrooms", "Bedrooms", "number")}
-          {field("bathrooms", "Bathrooms", "number")}
-          {field("receptions", "Receptions", "number")}
-          {field("property_type", "Type")}
-          {field("tenure", "Tenure")}
-          <label>
-            <span className="label">Parking</span>
-            <select name="parking" className="input" defaultValue={p.parking ?? ""}>
-              <option value="">—</option>
-              {PARKING.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-          </label>
-          {field("garden", "Garden")}
-          {field("nearest_station", "Nearest station")}
-          {field("station_distance_km", "Station km", "number")}
-          {field("council_tax_band", "Council tax band")}
-          {field("epc_rating", "EPC")}
         </div>
       </details>
       <div className="flex items-center gap-2 pt-1">
@@ -775,5 +754,70 @@ function FamilyNearby({ p, settings }: { p: Property; settings: Settings | null 
         </div>
       )}
     </Section>
+  );
+}
+
+
+const FACT_OPTIONS: Partial<Record<FactField, readonly string[]>> = {
+  parking: PARKING,
+  tenure: ["freehold", "leasehold", "share of freehold", "commonhold"],
+  council_tax_band: ["A", "B", "C", "D", "E", "F", "G", "H"],
+  epc_rating: ["A", "B", "C", "D", "E", "F", "G"],
+};
+
+/** A fact tile you can click to edit. Enter or click away saves, Esc cancels. */
+function Fact({ id, field, label, value, shown }: { id: string; field: FactField; label: string; value: string | number | null | undefined; shown?: string | number }) {
+  const [editing, setEditing] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const input = useRef<HTMLInputElement & HTMLSelectElement>(null);
+  const options = FACT_OPTIONS[field];
+  const empty = value == null || value === "";
+
+  const save = (raw: string) => {
+    setEditing(false);
+    if (raw.trim() === String(value ?? "")) return;
+    start(async () => setErr(await updateField(id, field, raw)));
+  };
+  const keys = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
+    if (e.key === "Enter") save(e.currentTarget.value);
+    if (e.key === "Escape") setEditing(false);
+  };
+
+  return (
+    <div
+      className={`card group relative cursor-text px-3 py-2 transition hover:border-brand ${err ? "border-red-300" : ""} ${pending ? "opacity-60" : ""}`}
+      onClick={() => !editing && (setEditing(true), setTimeout(() => input.current?.focus(), 0))}
+    >
+      <div className="flex items-center text-[11px] text-muted">
+        {label}
+        <span className="ml-auto opacity-0 transition group-hover:opacity-100">✎</span>
+      </div>
+      {editing ? (
+        options ? (
+          <select ref={input} className="w-full bg-transparent text-sm font-medium outline-none" defaultValue={String(value ?? "")} onBlur={(e) => save(e.target.value)} onChange={(e) => save(e.target.value)} onKeyDown={keys}>
+            <option value="">—</option>
+            {options.map((o) => (
+              <option key={o}>{o}</option>
+            ))}
+          </select>
+        ) : (
+          <input
+            ref={input}
+            type={field === "listed_date" ? "date" : "text"}
+            className="w-full bg-transparent text-sm font-medium outline-none"
+            defaultValue={String(value ?? "")}
+            placeholder={field === "size_sqft" ? "e.g. 990 or 92 sq m" : ""}
+            onBlur={(e) => save(e.target.value)}
+            onKeyDown={keys}
+          />
+        )
+      ) : (
+        <div className={`truncate text-sm font-medium ${empty ? "text-brand" : ""}`} title={String(shown ?? value ?? "")}>
+          {empty ? "+ Add" : (shown ?? value)}
+        </div>
+      )}
+      {err && <div className="text-[11px] text-bad">{err}</div>}
+    </div>
   );
 }
