@@ -123,3 +123,6 @@ export function parseFact(field: FactField, raw: string): { value: string | numb
   if (kind === "size") return { value: Math.round(/m²|sq\s*m|sqm|\bm\b|m$/i.test(v) ? n * 10.764 : n) }; // "56 sq m" → ft²
   return { value: kind === "int" ? Math.round(n) : Math.round(n * 100) / 100 };
 }
+
+/** Pulls photo links out of pasted text (one per line, or mixed in with other text). */
+export const photoLinks = (raw: string) => [...new Set(raw.match(/https?:\/\/[^\s"'<>,]+/g) ?? [])].slice(0, 30);

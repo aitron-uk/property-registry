@@ -19,6 +19,9 @@ export async function POST(req: Request) {
     const { facts, report } = await analyse(url, page, text, settings, early?.places);
     const pin = page.pin ?? (await geocode(facts.postcode)) ?? (await geocode(facts.address));
     const places = early ?? (pin ? await nearby(pin) : null);
+    // Sites like Zoopla block page reads, so keep photos already saved (e.g. pasted by hand).
+    const { data: prev } = await db().from("properties").select("image_url, ai").eq(id ? "id" : "url", id ?? url).maybeSingle();
+    const images: string[] = page.images.length ? page.images : (prev?.ai?.images ?? []);
 
     const row = {
       ...facts,
@@ -28,8 +31,8 @@ export async function POST(req: Request) {
       listed_date: /^\d{4}-\d{2}-\d{2}$/.test(facts.listed_date ?? "") ? facts.listed_date : null,
       lat: pin?.[0] ?? null,
       lng: pin?.[1] ?? null,
-      image_url: page.image ?? page.images[0] ?? null,
-      ai: { ...report, images: page.images, analysed_at: new Date().toISOString() },
+      image_url: page.image ?? images[0] ?? prev?.image_url ?? null,
+      ai: { ...report, images, analysed_at: new Date().toISOString() },
       ai_score: overallScore(report.scores),
       nearby: places,
     };

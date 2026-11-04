@@ -6,7 +6,7 @@ import type { Property, Report, Settings } from "@/lib/types";
 import { DECOR, PARKING, STATUSES } from "@/lib/types";
 import { LEGAL_FEES, ORIGINS, gbp, gbpShort, gmapsDirections, origins, refurbEstimate, stampDuty, type FactField } from "@/lib/calc";
 import { driveRoute } from "@/lib/osrm";
-import { deleteProperty, refreshNearby, updateField, updateProperty } from "@/app/actions";
+import { deleteProperty, refreshNearby, setPhotos, updateField, updateProperty } from "@/app/actions";
 import { CATS, nearest, noisyNeighbours, ofstedRank, within } from "@/lib/places";
 import type { Place } from "@/lib/types";
 import { Progress, useAnalyse } from "./AddBar";
@@ -31,7 +31,6 @@ export default function Detail({ p, settings }: { p: Property; settings: Setting
   const from = origins(settings);
   const here: [number, number] | null = p.lat ? [p.lat, p.lng!] : null;
   const [routes, setRoutes] = useState<Route[]>([]);
-  const [img, setImg] = useState(p.image_url);
   const { run, busy, error, stepText, progress } = useAnalyse();
 
   useEffect(() => {
@@ -123,22 +122,7 @@ export default function Detail({ p, settings }: { p: Property; settings: Setting
       <div className="grid gap-5 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)]">
         {/* Left: report */}
         <div className="space-y-5">
-          {images.length > 0 && (
-            <div className="card overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={img ?? images[0]} alt="" className="aspect-[16/9] w-full object-cover" referrerPolicy="no-referrer" />
-              {images.length > 1 && (
-                <div className="flex gap-2 overflow-x-auto p-2">
-                  {images.map((u) => (
-                    <button key={u} onClick={() => setImg(u)} className={`shrink-0 overflow-hidden rounded-lg ${u === img ? "ring-2 ring-brand" : "opacity-80 hover:opacity-100"}`}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={u} alt="" className="h-16 w-24 object-cover" referrerPolicy="no-referrer" loading="lazy" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          <Photos id={p.id} images={images} />
 
           {!r ? (
             <Section title="No AI report yet">
@@ -818,6 +802,62 @@ function Fact({ id, field, label, value, shown }: { id: string; field: FactField
         </div>
       )}
       {err && <div className="text-[11px] text-bad">{err}</div>}
+    </div>
+  );
+}
+
+/** Photo gallery, plus a box to paste photo links when the listing site blocks us (Zoopla). */
+function Photos({ id, images }: { id: string; images: string[] }) {
+  const [img, setImg] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const shown = img && images.includes(img) ? img : images[0];
+
+  const save = (form: FormData) =>
+    start(async () => {
+      const e = await setPhotos(id, String(form.get("links") ?? ""));
+      setErr(e);
+      if (!e) setOpen(false);
+    });
+
+  return (
+    <div className="card overflow-hidden">
+      {shown && (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={shown} alt="" className="aspect-[16/9] w-full object-cover" referrerPolicy="no-referrer" />
+          {images.length > 1 && (
+            <div className="flex gap-2 overflow-x-auto p-2">
+              {images.map((u) => (
+                <button key={u} onClick={() => setImg(u)} className={`shrink-0 overflow-hidden rounded-lg ${u === shown ? "ring-2 ring-brand" : "opacity-80 hover:opacity-100"}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={u} alt="" className="h-16 w-24 object-cover" referrerPolicy="no-referrer" loading="lazy" />
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+      <div className="px-3 py-2 text-sm">
+        {!open ? (
+          <button className="text-brand hover:underline" onClick={() => setOpen(true)}>
+            {images.length ? "✎ Edit photos" : "📷 No photos — add them"}
+          </button>
+        ) : (
+          <form action={save} className="space-y-2">
+            <p className="text-xs text-muted">
+              On the listing, right-click each photo → <b>Copy image address</b>, then paste here, one per line. The first is the cover photo. Delete a line to remove a photo.
+            </p>
+            <textarea name="links" className="input h-32 font-mono text-xs" defaultValue={images.join("\n")} placeholder="https://lid.zoocdn.com/u/1024/768/….jpg" autoFocus />
+            <div className="flex items-center gap-2">
+              <button className="btn-primary" disabled={pending}>{pending ? "Saving…" : "Save photos"}</button>
+              <button type="button" className="btn-ghost" onClick={() => setOpen(false)}>Cancel</button>
+              {err && <span className="text-xs text-bad">{err}</span>}
+            </div>
+          </form>
+        )}
+      </div>
     </div>
   );
 }

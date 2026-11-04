@@ -6,7 +6,7 @@ import { db, dbErrorHelp, getProperty } from "@/lib/db";
 import { geocode } from "@/lib/geo";
 import { nearby } from "@/lib/nearby";
 import { authToken, isAuthed } from "@/lib/auth";
-import { FACT_FIELDS, parseFact, type FactField } from "@/lib/calc";
+import { FACT_FIELDS, parseFact, photoLinks, type FactField } from "@/lib/calc";
 
 // Server actions can be POSTed to any URL (even /login), so each one checks the cookie itself.
 async function guard() {
@@ -83,6 +83,21 @@ export async function refreshNearby(id: string) {
   await db().from("properties").update({ nearby: n }).eq("id", id);
   revalidatePath(`/p/${id}`);
   revalidatePath("/");
+  return null;
+}
+
+/** Replace the photo list with links pasted by hand (for sites like Zoopla that block page reads). */
+export async function setPhotos(id: string, raw: string): Promise<string | null> {
+  await guard();
+  const cur = await getProperty(id);
+  if (!cur) return "Property not found";
+  const links = photoLinks(raw);
+  // Without a report, only the cover photo has somewhere to live.
+  const patch = { image_url: links[0] ?? null, ...(cur.ai && { ai: { ...cur.ai, images: links } }) };
+  const { error } = await db().from("properties").update(patch).eq("id", id);
+  if (error) return dbErrorHelp(error);
+  revalidatePath("/");
+  revalidatePath(`/p/${id}`);
   return null;
 }
 

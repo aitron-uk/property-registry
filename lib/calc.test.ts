@@ -35,3 +35,11 @@ assert.ok("error" in parseFact("bedrooms", "three"));
 assert.deepEqual(parseFact("epc_rating", " C "), { value: "C" });
 assert.deepEqual(parseFact("size_sqft", ""), { value: null });
 console.log("parseFact ok");
+
+import { photoLinks } from "./calc.ts";
+assert.deepEqual(photoLinks("https://lid.zoocdn.com/u/1024/768/a.jpg:p\n\n https://lid.zoocdn.com/u/1024/768/b.jpg:p, https://lid.zoocdn.com/u/1024/768/a.jpg:p"), [
+  "https://lid.zoocdn.com/u/1024/768/a.jpg:p",
+  "https://lid.zoocdn.com/u/1024/768/b.jpg:p",
+]);
+assert.deepEqual(photoLinks("nothing here"), []);
+console.log("photoLinks ok");
