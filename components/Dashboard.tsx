@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import type { Property, Settings } from "@/lib/types";
 import { STATUSES } from "@/lib/types";
-import { ORIGINS, allInCost, gbp, gbpShort, haversineKm, median, origins, refurbEstimate, stampDuty, type Kind } from "@/lib/calc";
+import { ORIGINS, allInCost, gbp, gbpShort, haversineKm, median, origins, refurbEstimate, stampDuty, areaOf, type Kind } from "@/lib/calc";
 import { driveRoute, driveTable, type Drive } from "@/lib/osrm";
 import { quickUpdate } from "@/app/actions";
 import { alertCount, bestSchool, noisyNeighbours, ofstedLabel, ofstedRank, within } from "@/lib/places";
@@ -350,8 +350,8 @@ function Datasheet({ rows, hasOffice2, medPpsf, selected, onSelect, onStatus, on
       <table className="w-full text-sm">
         <thead className="border-b border-line bg-paper/60">
           <tr>
-            {["", "Property", "Price", "Size", "£/ft²", "Beds", "Baths", "Parking", "Station", "Schools ≤1km", "Best school", "Pubs ≤300m", "Alerts", "Condition", "Work", "Refurb", "Stamp duty", "All-in", "Home", hasOffice2 ? "My office" : "Office", ...(hasOffice2 ? ["Wife's office", "Both"] : []), "Score", "Status", "Mine", ""].map((h, i) => (
-              <th key={i} className={th}>
+            {["", "Property", "Area", "Price", "Size", "£/ft²", "Beds", "Baths", "Parking", "Station", "Condition", "New kitchen?", "New bathroom?", "Schools ≤1km", "Best school", "Pubs ≤300m", "Alerts", "Refurb", "Stamp duty", "All-in", "Home", hasOffice2 ? "My office" : "Office", ...(hasOffice2 ? ["Wife's office", "Both"] : []), "Score", "Status", "Mine", "Link"].map((h, i) => (
+              <th key={i} className={`${th} ${i === 1 ? "sticky left-0 z-10 bg-card" : ""}`}>
                 {h}
               </th>
             ))}
@@ -366,22 +366,39 @@ function Datasheet({ rows, hasOffice2, medPpsf, selected, onSelect, onStatus, on
                   <img src={r.image_url} alt="" className="h-10 w-14 rounded-md object-cover" referrerPolicy="no-referrer" />
                 )}
               </td>
-              <td className="max-w-[260px] px-3 py-2">
+              <td className={`sticky left-0 z-10 max-w-[260px] px-3 py-2 shadow-[1px_0_0_var(--color-line)] ${selected === r.id ? "bg-brand-soft" : "bg-card"}`}>
                 <Link href={`/p/${r.id}`} onClick={(e) => e.stopPropagation()} className="block truncate font-medium hover:text-brand">
                   {r.address ?? r.title}
                 </Link>
                 <div className="truncate text-xs text-muted">{[r.property_type, r.tenure, r.postcode].filter(Boolean).join(" · ")}</div>
               </td>
+              <td className={td}>{areaOf(r.address, r.postcode) ?? "—"}</td>
               <td className={`${td} font-medium`}>{gbp(r.price)}</td>
-              <td className={td}>{r.size_sqft ?? "—"}</td>
+              <td className={td}>{r.size_sqft ? `${r.size_sqft} ft²` : "—"}</td>
               <td className={td}>
                 <PpsfTag v={r.price_per_sqft} med={medPpsf} />
               </td>
               <td className={td}>{r.bedrooms ?? "—"}</td>
               <td className={td}>{r.bathrooms ?? "—"}</td>
               <td className={td}>{r.parking ?? "—"}</td>
-              <td className={td} title={r.nearest_station ?? ""}>
-                {r.station_distance_km != null ? `${r.station_distance_km} km` : "—"}
+              <td className={td}>
+                {r.nearest_station || r.station_distance_km != null ? (
+                  <>
+                    <span className="block max-w-[160px] truncate" title={r.nearest_station ?? ""}>{r.nearest_station ?? "Station"}</span>
+                    {r.station_distance_km != null && <span className="text-xs text-muted">{r.station_distance_km} km</span>}
+                  </>
+                ) : (
+                  "—"
+                )}
+              </td>
+              <td className={td}>
+                <DecorChip state={r.decor_state} />
+              </td>
+              <td className={td}>
+                <YesNo on={r.needs_kitchen} />
+              </td>
+              <td className={td}>
+                <YesNo on={r.needs_bathroom} />
               </td>
               <td className={td}>{r.nearby ? within(r.nearby, "school", 1000) : "—"}</td>
               <td className={td} title={bestSchool(r.ai, 1000)?.name ?? ""}>
@@ -389,15 +406,6 @@ function Datasheet({ rows, hasOffice2, medPpsf, selected, onSelect, onStatus, on
               </td>
               <td className={td}>{r.nearby ? within(r.nearby, "pub", 300) : "—"}</td>
               <td className={td}>{alertCount(r) ? <span className="chip bg-red-600 text-white">🚩 {alertCount(r)}</span> : r.ai ? "✓" : "—"}</td>
-              <td className={td}>
-                <DecorChip state={r.decor_state} />
-              </td>
-              <td className={td}>
-                <div className="flex gap-1">
-                  <Flag on={r.needs_kitchen}>Kitchen</Flag>
-                  <Flag on={r.needs_bathroom}>Bath</Flag>
-                </div>
-              </td>
               <td className={td}>{r.refurb ? gbpShort(r.refurb) : "—"}</td>
               <td className={td}>{gbp(r.sdlt)}</td>
               <td className={`${td} font-medium`}>{gbpShort(r.allIn)}</td>
@@ -436,6 +444,9 @@ function Datasheet({ rows, hasOffice2, medPpsf, selected, onSelect, onStatus, on
     </div>
   );
 }
+
+const YesNo = ({ on }: { on: boolean | null }) =>
+  on ? <span className="chip bg-amber-50 text-amber-700">Yes</span> : <span className="text-muted">No</span>;
 
 function SchoolLine({ r }: { r: Row }) {
   const b = bestSchool(r.ai, 1500);
@@ -540,6 +551,7 @@ function buildInsights(rows: Row[], medPpsf: number | null, s: Settings | null) 
 function downloadCsv(rows: Row[]) {
   const cols: [string, (r: Row) => unknown][] = [
     ["Address", (r) => r.address ?? r.title],
+    ["Area", (r) => areaOf(r.address, r.postcode)],
     ["Postcode", (r) => r.postcode],
     ["Price", (r) => r.price],
     ["Size sqft", (r) => r.size_sqft],

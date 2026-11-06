@@ -126,3 +126,12 @@ export function parseFact(field: FactField, raw: string): { value: string | numb
 
 /** Pulls photo links out of pasted text (one per line, or mixed in with other text). */
 export const photoLinks = (raw: string) => [...new Set(raw.match(/https?:\/\/[^\s"'<>,]+/g) ?? [])].slice(0, 30);
+
+const POSTCODE = /\b([A-Z]{1,2}\d[A-Z\d]?)\s*\d[A-Z]{2}\b/i;
+/** Town + postcode district from the address, e.g. "Crawley · RH11". */
+export function areaOf(address: string | null, postcode: string | null) {
+  const district = (postcode ?? address ?? "").match(POSTCODE)?.[1]?.toUpperCase();
+  const parts = (address ?? "").replace(POSTCODE, "").split(",").map((s) => s.trim()).filter(Boolean);
+  const town = parts.length > 1 ? parts.at(-1) : null;
+  return [town, district].filter(Boolean).join(" · ") || null;
+}

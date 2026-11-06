@@ -43,3 +43,11 @@ assert.deepEqual(photoLinks("https://lid.zoocdn.com/u/1024/768/a.jpg:p\n\n https
 ]);
 assert.deepEqual(photoLinks("nothing here"), []);
 console.log("photoLinks ok");
+
+import { areaOf } from "./calc.ts";
+assert.equal(areaOf("20 Colgate Close, Crawley, RH11 0AZ", "RH11 0AZ"), "Crawley · RH11");
+assert.equal(areaOf("Colgate Close, Crawley RH11 0AZ", null), "Crawley · RH11");
+assert.equal(areaOf("Flat 2, 10 High St, Sutton, Surrey", "sm1 1aa"), "Surrey · SM1");
+assert.equal(areaOf("Colgate Close", null), null);
+assert.equal(areaOf(null, "CR7 8AA"), "CR7");
+console.log("areaOf ok");
